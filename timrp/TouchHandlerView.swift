@@ -9,6 +9,8 @@
 import Cocoa
 
 class TouchHandlerView: NSView {
+    var onCharacterUpdated: ((Int) -> Void)? = nil
+
     var activeTouches = Set<NSTouch>()
     var referencePoint: CGPoint?
     var bisectors: [CGPoint] = []
@@ -142,7 +144,9 @@ class TouchHandlerView: NSView {
             }).reduce(0, { ret, finger in
                 return Int(CGFloat(ret) + pow(2.0, CGFloat(finger)))
             })
-            Swift.print(self.currentCharacter)
+            if let onCharacterUpdated = self.onCharacterUpdated {
+                onCharacterUpdated(self.currentCharacter)
+            }
         }
         self.needsDisplay = true
     }
