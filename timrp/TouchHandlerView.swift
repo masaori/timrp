@@ -11,13 +11,13 @@ import Cocoa
 class TouchHandlerView: NSView {
     var onCharacterUpdated: ((Int) -> Void)? = nil
 
-    var activeTouches = Set<NSTouch>()
-    var referencePoint: CGPoint?
-    var bisectors: [CGPoint] = []
-    var currentCharacter: Int = 0;
+    fileprivate var activeTouches = Set<NSTouch>()
+    fileprivate var referencePoint: CGPoint?
+    fileprivate var bisectors: [CGPoint] = []
+    fileprivate var updating = false
 
-    var debug_pointsA: [CGPoint] = []
-    var debug_pointsB: [CGPoint] = []
+    fileprivate var debug_pointsA: [CGPoint] = []
+    fileprivate var debug_pointsB: [CGPoint] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -37,14 +37,6 @@ class TouchHandlerView: NSView {
         self.extractTouchFrom(event: event)
     }
 
-    override func touchesMoved(with event: NSEvent) {
-        self.extractTouchFrom(event: event)
-    }
-
-    override func touchesEnded(with event: NSEvent) {
-        self.extractTouchFrom(event: event)
-    }
-
     override func touchesCancelled(with event: NSEvent) {
         self.activeTouches = Set<NSTouch>()
         self.needsDisplay = true
@@ -55,12 +47,6 @@ class TouchHandlerView: NSView {
 
         NSColor.darkGray.setFill()
         NSRectFill(dirtyRect)
-
-        var text = ""
-        if self.currentCharacter > 0 {
-            text.append(Character(UnicodeScalar(self.currentCharacter)!))
-        }
-        self.drawText(text: text, rect: dirtyRect)
 
         NSColor.lightGray.set()
         let diameter = CGFloat(10.0);
@@ -104,14 +90,14 @@ class TouchHandlerView: NSView {
         }
     }
 
-    private func drawMark(pos: CGPoint, diameter: CGFloat, color: NSColor, stroke: Bool) {
+    fileprivate func drawMark(pos: CGPoint, diameter: CGFloat, color: NSColor, stroke: Bool) {
         color.set()
         let path = NSBezierPath(ovalIn: NSMakeRect(pos.x - diameter / 2, pos.y - diameter / 2, diameter, diameter))
         path.lineWidth = 2.0
         stroke ? path.stroke() : path.fill()
     }
 
-    private func drawLine(posA: CGPoint, posB: CGPoint, color: NSColor) {
+    fileprivate  func drawLine(posA: CGPoint, posB: CGPoint, color: NSColor) {
         color.set()
         let path = NSBezierPath()
         path.move(to: posA)
@@ -120,7 +106,7 @@ class TouchHandlerView: NSView {
         path.stroke()
     }
 
-    private func drawText(text: String, rect: NSRect) {
+    fileprivate func drawText(text: String, rect: NSRect) {
         let font = NSFont(name: "Helvetica Bold", size: 200.0)
         if let actualFont = font {
             let textFontAttributes = [
@@ -133,26 +119,36 @@ class TouchHandlerView: NSView {
         }
     }
 
-    private func extractTouchFrom(event: NSEvent) {
+    fileprivate func extractTouchFrom(event: NSEvent) {
         self.activeTouches = event.touches(matching: .touching, in: nil)
         if self.activeTouches.count == 5 {
-            calculateRegions()
+            calculateRegions(touches: self.activeTouches)
         }
-        if self.referencePoint != nil {
-            self.currentCharacter = self.activeTouches.map({ (touch: NSTouch) -> Int in
-                return self.convertPositionToFingerId(touchPos: touch.pos(self))
-            }).reduce(0, { ret, finger in
-                return Int(CGFloat(ret) + pow(2.0, CGFloat(finger)))
-            })
-            if let onCharacterUpdated = self.onCharacterUpdated {
-                onCharacterUpdated(self.currentCharacter)
-            }
+        if self.referencePoint != nil && !self.updating {
+            self.updating = true
+            DispatchQueue.main.asyncAfter(
+                deadline: DispatchTime.now() + .milliseconds(66),
+                execute: self.updateTouchedCharacter
+            )
         }
         self.needsDisplay = true
     }
 
-    private func calculateRegions() -> Void {
-        let poses = self.activeTouches.map({ (touch: NSTouch) -> CGPoint in
+    fileprivate func updateTouchedCharacter() {
+        self.updating = false
+
+        let currentCharacter = self.activeTouches.map({ (touch: NSTouch) -> Int in
+            return self.convertPositionToFingerId(touchPos: touch.pos(self))
+        }).reduce(0, { ret, finger in
+            return Int(CGFloat(ret) + pow(2.0, CGFloat(finger)))
+        })
+        if let onCharacterUpdated = self.onCharacterUpdated {
+            onCharacterUpdated(currentCharacter)
+        }
+    }
+
+    fileprivate func calculateRegions(touches: Set<NSTouch>) -> Void {
+        let poses = touches.map({ (touch: NSTouch) -> CGPoint in
             return touch.pos(self)
         })
         let sum = poses.reduce(CGPoint(x: 0, y: 0), { ret, pos in
@@ -187,7 +183,7 @@ class TouchHandlerView: NSView {
         }
     }
 
-    private func calculateAngle(from referencePoint: CGPoint) -> (_ pos: CGPoint) -> CGFloat {
+    fileprivate func calculateAngle(from referencePoint: CGPoint) -> (_ pos: CGPoint) -> CGFloat {
         return { pos -> CGFloat in
             let base = pos.x - referencePoint.x // signed length of a base
             let opposite = pos.y - referencePoint.y // signed length of a opposite side
@@ -200,7 +196,7 @@ class TouchHandlerView: NSView {
         }
     }
 
-    private func convertPositionToFingerId(touchPos: CGPoint) -> Int {
+    fileprivate func convertPositionToFingerId(touchPos: CGPoint) -> Int {
         let referencePoint = self.referencePoint!
         let calculateAngle = self.calculateAngle(from: referencePoint)
         let theta = calculateAngle(touchPos);
